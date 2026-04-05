@@ -5,7 +5,7 @@ import { usePathname } from "next/navigation";
 import clsx from "clsx";
 
 const navLinks = [
-  { name: "지문학습", href: "/study" },
+  { name: "지문학습", href: "/" },
   { name: "단어장", href: "/vocabulary" },
   { name: "퀴즈", href: "/quiz" },
 ];
