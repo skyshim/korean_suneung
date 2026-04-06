@@ -6,8 +6,10 @@ const openai = new OpenAI({
 });
 
 export async function POST(request: Request) {
+  let word: string | undefined;
+  let definition: string | undefined;
   try {
-    const { word, definition } = await request.json();
+    ({ word, definition } = await request.json());
 
     if (!word || !definition) {
       return NextResponse.json({ error: 'Word and definition are required' }, { status: 400 });
