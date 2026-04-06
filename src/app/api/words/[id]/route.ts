@@ -1,9 +1,10 @@
 import { NextResponse, NextRequest } from 'next/server';
 import prisma from '@/lib/prisma';
 
-export async function DELETE(request: NextRequest, context: { params: { id: string } }) {
+export async function DELETE(request: NextRequest, context: { params: Promise<{ id: string }> }) {
   try {
-    const { id } = context.params;
+    const resolvedParams = await context.params;
+    const { id } = resolvedParams;
 
     if (!id) {
       return NextResponse.json({ error: 'ID is required' }, { status: 400 });
@@ -20,9 +21,10 @@ export async function DELETE(request: NextRequest, context: { params: { id: stri
   }
 }
 
-export async function PUT(request: NextRequest, context: { params: { id: string } }) {
+export async function PUT(request: NextRequest, context: { params: Promise<{ id: string }> }) {
   try {
-    const { id } = context.params;
+    const resolvedParams = await context.params;
+    const { id } = resolvedParams;
     const { word, pos, definition, examples } = await request.json();
 
     if (!id || !word || !pos || !definition) {
