@@ -1,11 +1,34 @@
+import streamlit as st
 import pdfplumber
 import re
-import os
+import io
 
-# ==========================================
-# 1. AI 전달용 표준 프롬프트 (파일 생성 시 자동 삽입)
-# ==========================================
+# --- 페이지 설정 ---
+st.set_page_config(page_title="국어 기출 PDF 추출기", layout="wide")
+
+# --- 기존 로직 (clean_text) ---
+def clean_text(text):
+    if not text: return ""
+    noise_patterns = [
+        r"이 문제지에 관한 저작권은 한국교육과정평가원에 있습니다\.",
+        r"한국교육과정평가원",
+        r"\d{4}학년도 대학수학능력시험 문제지",
+        r"대학\s?수학\s?능력\s?시험\s?문제지",
+        r"제\s?\d\s?교시",
+        r"국어\s?영역",
+        r"홀수형|짝수형",
+        r"(\n\s*)\d+(\s*\n)", 
+    ]
+    for pattern in noise_patterns:
+        text = re.sub(pattern, "", text)
+    text = re.sub(r"(\n\d+\.)", r"\n\n\1", text)
+    text = re.sub(r" +", " ", text)
+    text = re.sub(r"\n{3,}", "\n\n", text).strip()
+    return text
+
+# --- 프롬프트 템플릿 ---
 PROMPT_TEMPLATE = """--- 명령: 아래 텍스트를 분석하여 기출문제 JSON 객체로 변환해줘 ---
+
 [제한사항 및 규격]
 1. 형식: 반드시 아래 구조를 가진 JSON 객체 1개만 생성할 것. (배열로 감싸지 말 것)
 원문 텍스트를 최대한 보존하되, 불필요한 공백과 노이즈는 제거할 것.
@@ -37,113 +60,58 @@ PROMPT_TEMPLATE = """--- 명령: 아래 텍스트를 분석하여 기출문제 J
 }
 
 --- 추출된 텍스트 시작 ---
+
 """
 
-def clean_text(text):
-    """추출된 텍스트에서 문제지 특유의 노이즈를 제거합니다."""
-    if not text: return ""
-    noise_patterns = [
-        r"이 문제지에 관한 저작권은 한국교육과정평가원에 있습니다\.",
-        r"한국교육과정평가원",
-        r"\d{4}학년도 대학수학능력시험 문제지",
-        r"대학\s?수학\s?능력\s?시험\s?문제지",
-        r"학능력시험",
-        r"제\s?\d\s?교시",
-        r"국어\s?영역",
-        r"홀수형|짝수형",
-        r"(\n\s*)\d+(\s*\n)", # 페이지 번호
-    ]
-    for pattern in noise_patterns:
-        text = re.sub(pattern, "", text)
-    
-    # 가독성 및 구조 개선
-    text = re.sub(r"(\n\d+\.)", r"\n\n\1", text) # 문제 번호 앞 줄바꿈
-    text = re.sub(r"‘\s*’", "‘[내용 확인 필요]’", text)
-    text = re.sub(r"\'\s*\'", "\'[내용 확인 필요]\'", text)
-    text = re.sub(r" +", " ", text)
-    text = re.sub(r"\n{3,}", "\n\n", text).strip()
-    return text
+# --- 웹 UI 구성 ---
+st.title("📄 국어 기출 PDF 텍스트 추출기")
+st.write("PDF를 업로드하면 지문 세트별로 쪼개어 AI 전달용 프롬프트를 만들어줍니다.")
 
-def extract_kichul_text(pdf_path):
-    """PDF를 읽어 지문 세트별로 리스트를 반환합니다."""
-    if not os.path.exists(pdf_path):
-        print(f"❌ 오류: '{pdf_path}' 파일을 찾을 수 없습니다.")
-        return None
+uploaded_file = st.file_uploader("수능/모평 기출 PDF 파일을 업로드하세요", type="pdf")
 
-    full_text = ""
-    print(f"[{pdf_path}] 분석 시작 (1~12페이지)...")
-    
-    try:
-        with pdfplumber.open(pdf_path) as pdf:
-            # 공통 과목 범위인 12페이지까지 우선 처리
-            pages_to_read = pdf.pages[:12]
-            for i, page in enumerate(pages_to_read):
-                width = page.width
-                height = page.height
-                
-                # 수능 문제지 특유의 2단 구성을 고려하여 좌우 분할 추출
-                left_bbox = (0, 0, width / 2, height)
-                left_text = page.within_bbox(left_bbox).extract_text(x_tolerance=3, y_tolerance=3)
-                
-                right_bbox = (width / 2, 0, width, height)
-                right_text = page.within_bbox(right_bbox).extract_text(x_tolerance=3, y_tolerance=3)
-                
-                if left_text: full_text += left_text + "\n"
-                if right_text: full_text += right_text + "\n"
-                print(f"{i+1}페이지 추출 완료...")
-    except Exception as e:
-        print(f"❌ PDF 읽기 중 오류 발생: {e}")
-        return None
-
-    full_text = clean_text(full_text)
-    
-    # 지문 범위를 나타내는 [1~3], [4~9] 패턴으로 텍스트 분할
-    passage_pattern = r"(\[\s?\d+\s?[~～]\s?\d+\s?\])"
-    parts = re.split(passage_pattern, full_text)
-    
+if uploaded_file is not None:
     passages = []
-    if len(parts) <= 1:
-        passages.append({"range": "전체", "raw_text": full_text})
-    else:
-        # 분할된 파트에서 [범위]와 내용을 매칭
-        for i in range(1, len(parts), 2):
-            range_label = parts[i].strip()
-            content = parts[i+1] if i+1 < len(parts) else ""
-            passages.append({"range": range_label, "raw_text": content.strip()})
+    
+    with st.spinner('PDF 분석 중... (2단 구성을 읽고 있습니다)'):
+        # 메모리 상에서 PDF 열기
+        with pdfplumber.open(io.BytesIO(uploaded_file.read())) as pdf:
+            full_text = ""
+            # 공통 과목 범위만 추출 (보통 1~12p)
+            pages = pdf.pages[:12]
+            for page in pages:
+                width = page.width
+                # 2단 구성 처리
+                left = page.within_bbox((0, 0, width/2, page.height)).extract_text()
+                right = page.within_bbox((width/2, 0, width, page.height)).extract_text()
+                if left: full_text += left + "\n"
+                if right: full_text += right + "\n"
             
-    return passages
+            cleaned = clean_text(full_text)
+            
+            # 지문 분할
+            parts = re.split(r"(\[\s?\d+\s?[~～]\s?\d+\s?\])", cleaned)
+            for i in range(1, len(parts), 2):
+                range_label = parts[i].strip()
+                content = parts[i+1].strip() if i+1 < len(parts) else ""
+                # 34번 이후 선택과목 제외 로직
+                nums = re.findall(r"\d+", range_label)
+                if nums and int(nums[0]) <= 34:
+                    passages.append({"range": range_label, "text": content})
 
-def save_to_work_files(passages, output_dir="work_files"):
-    """추출된 지문들을 개별 파일로 저장하며 프롬프트를 삽입합니다."""
-    if not passages: return
-    if not os.path.exists(output_dir):
-        os.makedirs(output_dir)
-
-    file_count = 0
-    for item in passages:
-        # 정규식으로 시작 번호 추출하여 파일명 정렬 용이하게 구성
-        nums = re.findall(r"\d+", item['range'])
-        start_num = int(nums[0]) if nums else 99
-        
-        # 34번 이후(선택과목)는 일단 제외하거나 필요에 따라 수정 가능
-        if start_num > 34: continue
-
-        safe_range = re.sub(r"[^\d~-]", "", item['range'].replace("～", "~"))
-        filename = f"{output_dir}/work_{file_count+1:02d}_{safe_range}.txt"
-        
-        with open(filename, "w", encoding="utf-8") as f:
-            f.write(PROMPT_TEMPLATE)
-            f.write(f"지문 범위: {item['range']}\n\n")
-            f.write(item['raw_text'])
-        
-        print(f"✅ 파일 생성 완료: {filename}")
-        file_count += 1
-
-if __name__ == "__main__":
-    # PDF 파일명이 실제 파일과 일치하는지 확인하세요.
-    target_pdf = "2025대비 수능 - 국어 문제.pdf"
-    data = extract_kichul_text(target_pdf)
-    if data:
-        save_to_work_files(data)
-        print(f"\n총 {len(data)}개의 지문 세트가 발견되었습니다.")
-        print(f"작업 완료! 'work_files' 폴더 내의 txt 파일을 하나씩 AI에게 전달하여 JSON으로 변환하세요.")
+    # --- 결과 표시 ---
+    st.success(f"총 {len(passages)}개의 지문 세트를 찾았습니다.")
+    
+    for idx, item in enumerate(passages):
+        with st.expander(f"세트 {idx+1}: {item['range']}"):
+            final_output = f"{PROMPT_TEMPLATE}\n지문 범위: {item['range']}\n\n{item['text']}"
+            
+            # 텍스트 영역에 표시 (바로 복사 가능)
+            st.text_area("AI에게 복사해서 전달하세요", value=final_output, height=300, key=f"text_{idx}")
+            
+            # 개별 파일 다운로드 버튼
+            st.download_button(
+                label="파일로 다운로드",
+                data=final_output,
+                file_name=f"work_{idx+1}_{item['range']}.txt",
+                mime="text/plain"
+            )

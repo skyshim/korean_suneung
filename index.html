@@ -38,6 +38,46 @@
 
         /* 입력창 포커스 시 확대 방지 (iOS) */
         input, select, textarea { font-size: 16px !important; }
+
+        .site-footer {
+  background-color: #f8f9fa; /* 연한 회색 배경 */
+  color: #6c757d;           /* 중간 회색 글자 */
+  padding: 40px 20px;
+  text-align: center;
+  font-size: 0.85rem;
+  line-height: 1.6;
+  border-top: 1px solid #dee2e6;
+  margin-top: 50px;
+}
+
+.footer-content {
+  max-width: 800px;
+  margin: 0 auto;
+}
+
+.footer-content p {
+  margin: 8px 0;
+}
+
+.copyright {
+  font-weight: bold;
+  color: #343a40;
+}
+
+.disclaimer strong {
+  color: #d9534f; /* 비영리 강조 색상 (빨간색 계열) */
+}
+
+.links a {
+  color: #007bff;
+  text-decoration: none;
+  display: inline-block;
+  margin-top: 10px;
+}
+
+.links a:hover {
+  text-decoration: underline;
+}
     </style>
 </head>
 <body class="bg-[#fdfeff] text-slate-900">
@@ -220,5 +260,20 @@
 
         render();
     </script>
+    <footer class="site-footer">
+  <div class="footer-content">
+    <p class="copyright">&copy; 2026 Sim Sung-woo. All rights reserved.</p>
+    <p class="disclaimer">
+      본 사이트는 개인 학습 및 교육용 포트폴리오 목적으로 제작된 <strong>비영리 사이트</strong>입니다.
+    </p>
+    <p class="notice">
+      수록된 문제와 지문의 저작권은 각 출제 기관(한국교육과정평가원 등) 및 원작자에게 있습니다.<br>
+      저작권자의 요청이 있을 경우 관련 콘텐츠는 즉시 삭제될 수 있습니다.
+    </p>
+    <div class="links">
+      <a href="https://github.com/skyshim/korean_suneung" target="_blank">GitHub Repository</a>
+    </div>
+  </div>
+</footer>
 </body>
 </html>
