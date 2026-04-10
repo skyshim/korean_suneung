@@ -1,0 +1,335 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>기출 트레이너 - 데이터 관리 모드</title>
+    <!-- Tailwind CSS CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Pretendard:wght@400;600;700&display=swap');
+        body { font-family: 'Pretendard', sans-serif; }
+        .view-box { position: relative; }
+        .view-box::before {
+            content: "보기";
+            position: absolute;
+            top: -0.75rem;
+            left: 1rem;
+            background: white;
+            padding: 0 0.5rem;
+            font-size: 0.75rem;
+            font-weight: bold;
+            color: #94a3b8;
+            border: 1px solid #e2e8f0;
+            border-radius: 0.25rem;
+        }
+        /* 2단 구성을 위한 스타일 */
+        @media (min-width: 1024px) {
+            .passage-scroll { max-height: calc(100vh - 160px); overflow-y: auto; }
+        }
+    </style>
+</head>
+<body class="bg-slate-50 text-slate-900 min-h-screen">
+
+    <div id="app" class="max-w-7xl mx-auto p-4 md:p-6">
+        <!-- Header -->
+        <header class="flex justify-between items-center mb-6 border-b pb-4 border-slate-200">
+            <div class="flex items-center gap-2 cursor-pointer" onclick="resetApp()">
+                <div class="bg-indigo-600 p-2 rounded-lg text-white">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19.5v-15A2.5 2.5 0 0 1 6.5 2H20v20H6.5a2.5 2.5 0 0 1-2.5-2.5Z"/><path d="M8 7h6"/><path d="M8 11h8"/></svg>
+                </div>
+                <div>
+                    <h1 class="text-xl font-bold tracking-tight text-indigo-900 leading-tight">기출 트레이너</h1>
+                    <p class="text-xs text-slate-500">데이터 관리 및 학습 시스템</p>
+                </div>
+            </div>
+            <div id="header-actions" class="flex gap-2"></div>
+        </header>
+
+        <!-- Main Content Area -->
+        <main id="main-content"></main>
+    </div>
+
+    <!-- 데이터 입력용 모달 (숨김 상태) -->
+    <div id="data-modal" class="fixed inset-0 bg-black/50 hidden items-center justify-center z-50 p-4">
+        <div class="bg-white rounded-2xl w-full max-w-2xl p-6 shadow-2xl">
+            <h3 class="text-lg font-bold mb-4">데이터 가져오기 (JSON)</h3>
+            <p class="text-sm text-slate-500 mb-4">파이썬으로 추출한 JSON 데이터를 아래에 붙여넣으세요.</p>
+            <textarea id="json-input" class="w-full h-64 p-4 border rounded-xl font-mono text-xs mb-4" placeholder='[{"id": 1, ...}]'></textarea>
+            <div class="flex justify-end gap-2">
+                <button onclick="toggleModal()" class="px-4 py-2 border rounded-lg hover:bg-slate-50">취소</button>
+                <button onclick="importData()" class="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700">적용하기</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // 초기 데이터 (비어있거나 기본값)
+        let MOCK_DATA = [];
+
+        // 로컬스토리지에서 데이터 불러오기
+        const savedData = localStorage.getItem('kichul_data');
+        if (savedData) {
+            MOCK_DATA = JSON.parse(savedData);
+        } else {
+            // 샘플 데이터 1개 유지
+            MOCK_DATA = [{
+                id: 1,
+                year: "2025학년도 수능",
+                category: "독서",
+                subCategory: "독서론",
+                title: "밑줄 긋기 전략",
+                content: `밑줄 긋기는 일상적으로 유용하게 활용할 수 있는 독서 전략이다. 밑줄 긋기는 정보를 머릿속에 저장하고 기억한 내용을 떠올리는 데 도움이 된다...`,
+                questions: [{
+                    id: "q1",
+                    text: "윗글의 내용과 일치하지 않는 것은?",
+                    options: ["밑줄 긋기는 시각적 자극을 준다.", "방대한 정보 중 주요 정보를 추리게 한다.", "글을 읽는 중에 즉시 하는 것이 항상 최선이다.", "잘못 표시한 밑줄은 독서 흐름을 방해할 수 있다.", "학습 상황에서도 유용하게 활용 가능하다."],
+                    answer: 2,
+                    explanation: "글을 읽는 중에는 중요도를 결정할 때까지 잠시 늦추는 것이 좋다고 언급되었습니다."
+                }]
+            }];
+        }
+
+        let state = {
+            currentPassage: null,
+            userAnswers: {},
+            showResults: false
+        };
+
+        const categories = [
+            { id: 'lit', name: '문학', subs: ['고전산문', '고전시가', '현대시', '현대소설'] },
+            { id: 'read', name: '독서', subs: ['독서론', '인문예술', '사회문화', '과학기술'] }
+        ];
+
+        function render() {
+            const main = document.getElementById('main-content');
+            const headerActions = document.getElementById('header-actions');
+            
+            if (!state.currentPassage) {
+                headerActions.innerHTML = `
+                    <button onclick="toggleModal()" class="text-xs bg-slate-100 hover:bg-slate-200 px-3 py-2 rounded-lg font-medium transition-all">데이터 관리</button>
+                `;
+                main.innerHTML = renderCategorySelection();
+            } else {
+                headerActions.innerHTML = `
+                    <button onclick="resetApp()" class="flex items-center gap-2 text-slate-500 hover:text-indigo-600 transition-colors text-sm font-medium">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></svg>
+                        나가기
+                    </button>
+                `;
+                main.innerHTML = renderPassageView();
+            }
+        }
+
+        function renderCategorySelection() {
+            const counts = {};
+            MOCK_DATA.forEach(d => counts[d.subCategory] = (counts[d.subCategory] || 0) + 1);
+
+            return `
+                <div class="animate-in fade-in slide-in-from-bottom-4 duration-500">
+                    <div class="text-center mb-10">
+                        <h2 class="text-2xl font-bold text-slate-800 mb-2">학습 제재 선택</h2>
+                        <p class="text-slate-500">총 ${MOCK_DATA.length}개의 지문이 등록되어 있습니다.</p>
+                    </div>
+                    <div class="grid md:grid-cols-2 gap-6">
+                        ${categories.map(cat => `
+                            <div class="bg-white rounded-2xl p-6 shadow-sm border border-slate-200">
+                                <h3 class="text-lg font-bold mb-4 flex items-center gap-2 text-indigo-700">
+                                    <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z"/><polyline points="14 2 14 8 20 8"/></svg>
+                                    ${cat.name}
+                                </h3>
+                                <div class="grid grid-cols-2 gap-3">
+                                    ${cat.subs.map(sub => `
+                                        <button onclick="handlePickPassage('${sub}')" 
+                                            class="p-3 text-left rounded-xl border border-slate-200 hover:border-indigo-400 hover:bg-indigo-50 transition-all group flex justify-between items-center ${!counts[sub] ? 'opacity-50 grayscale' : ''}">
+                                            <div class="flex flex-col">
+                                                <span class="text-sm font-semibold">${sub}</span>
+                                                <span class="text-[10px] text-slate-400">${counts[sub] || 0} items</span>
+                                            </div>
+                                            <svg class="text-slate-300 group-hover:text-indigo-500" xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"/></svg>
+                                        </button>
+                                    `).join('')}
+                                </div>
+                            </div>
+                        `).join('')}
+                    </div>
+                </div>
+            `;
+        }
+
+        function renderPassageView() {
+            const passage = state.currentPassage;
+            const solvedAll = Object.keys(state.userAnswers).length === passage.questions.length;
+
+            return `
+                <div class="grid lg:grid-cols-2 gap-6 animate-in fade-in duration-500 items-start">
+                    <!-- 지문 영역 -->
+                    <div class="passage-scroll bg-white p-8 rounded-2xl shadow-sm border border-slate-200">
+                        <div class="mb-6">
+                            <div class="flex gap-2 mb-2">
+                                <span class="px-2 py-0.5 rounded bg-indigo-50 text-indigo-600 text-[10px] font-bold uppercase border border-indigo-100">${passage.year}</span>
+                                <span class="px-2 py-0.5 rounded bg-slate-100 text-slate-500 text-[10px] font-bold uppercase border border-slate-200">${passage.subCategory}</span>
+                            </div>
+                            <h2 class="text-2xl font-bold text-slate-900">${passage.title}</h2>
+                        </div>
+                        <div class="whitespace-pre-wrap leading-relaxed text-slate-700 text-lg font-serif">
+${passage.content}
+                        </div>
+                    </div>
+
+                    <!-- 문제 영역 -->
+                    <div class="space-y-6">
+                        ${passage.questions.map((q, idx) => renderQuestion(q, idx)).join('')}
+                        
+                        <div id="action-buttons" class="pt-4">
+                            ${!state.showResults ? `
+                                <button onclick="handleGrade()" 
+                                    ${!solvedAll ? 'disabled' : ''}
+                                    class="w-full py-4 bg-indigo-600 text-white rounded-2xl font-bold shadow-lg shadow-indigo-200 hover:bg-indigo-700 disabled:bg-slate-300 disabled:shadow-none transition-all flex items-center justify-center gap-2">
+                                    <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 11 3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>
+                                    채점하기 (${Object.keys(state.userAnswers).length} / ${passage.questions.length})
+                                </button>
+                            ` : `
+                                <div class="flex flex-col sm:flex-row gap-3">
+                                    <button onclick="handlePickPassage('${passage.subCategory}')" 
+                                        class="flex-1 py-4 bg-slate-800 text-white rounded-2xl font-bold hover:bg-slate-900 transition-all">
+                                        다음 지문 (랜덤)
+                                    </button>
+                                    <button onclick="resetApp()" 
+                                        class="flex-1 py-4 bg-white border border-slate-200 text-slate-600 rounded-2xl font-bold hover:bg-slate-50 transition-all">
+                                        다른 제재 선택
+                                    </button>
+                                </div>
+                            `}
+                        </div>
+                    </div>
+                </div>
+            `;
+        }
+
+        function renderQuestion(q, index) {
+            const userAnswer = state.userAnswers[q.id];
+            
+            return `
+                <div class="bg-white p-6 rounded-2xl shadow-sm border border-slate-200">
+                    <div class="flex gap-3 mb-4">
+                        <span class="font-black text-indigo-600 text-xl">${index + 1}.</span>
+                        <h3 class="font-bold text-lg text-slate-800">${q.text}</h3>
+                    </div>
+
+                    ${q.hasView ? `
+                        <div class="view-box bg-slate-50 border border-slate-200 p-5 rounded-lg mb-6 text-sm font-serif italic text-slate-800 leading-relaxed">
+                            <div class="whitespace-pre-wrap">${q.viewContent}</div>
+                        </div>
+                    ` : ''}
+
+                    <div class="space-y-2">
+                        ${q.options.map((opt, optIdx) => {
+                            const isSelected = userAnswer === optIdx;
+                            const isCorrect = q.answer === optIdx;
+                            let btnClass = "bg-white border-slate-200 hover:border-indigo-300";
+                            let icon = '';
+
+                            if (state.showResults) {
+                                if (isCorrect) {
+                                    btnClass = "bg-green-50 border-green-500 ring-1 ring-green-500";
+                                    icon = `<svg class="ml-auto text-green-600" xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>`;
+                                } else if (isSelected) {
+                                    btnClass = "bg-red-50 border-red-500";
+                                    icon = `<svg class="ml-auto text-red-600" xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>`;
+                                }
+                            } else if (isSelected) {
+                                btnClass = "bg-indigo-50 border-indigo-500 ring-1 ring-indigo-500";
+                            }
+
+                            return `
+                                <button onclick="handleSelectOption('${q.id}', ${optIdx})" 
+                                    ${state.showResults ? 'disabled' : ''}
+                                    class="w-full text-left p-3.5 rounded-xl border transition-all flex items-start gap-3 ${btnClass}">
+                                    <span class="w-6 h-6 rounded-full border flex-shrink-0 flex items-center justify-center text-xs font-bold ${isSelected ? 'bg-indigo-600 text-white border-indigo-600' : 'border-slate-300 text-slate-500'}">
+                                        ${optIdx + 1}
+                                    </span>
+                                    <span class="text-sm font-medium text-slate-700">${opt}</span>
+                                    ${icon}
+                                </button>
+                            `;
+                        }).join('')}
+                    </div>
+
+                    ${state.showResults ? `
+                        <div class="mt-4 p-4 bg-indigo-50 rounded-xl text-sm border border-indigo-100 animate-in slide-in-from-top-2">
+                            <p class="font-bold text-indigo-900 mb-1 flex items-center gap-1">
+                                <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+                                정답 해설
+                            </p>
+                            <p class="text-slate-700 leading-relaxed">${q.explanation || '해설 정보가 없습니다.'}</p>
+                        </div>
+                    ` : ''}
+                </div>
+            `;
+        }
+
+        // --- 관리 기능 ---
+        function toggleModal() {
+            const modal = document.getElementById('data-modal');
+            modal.classList.toggle('hidden');
+            modal.classList.toggle('flex');
+            if (!modal.classList.contains('hidden')) {
+                document.getElementById('json-input').value = JSON.stringify(MOCK_DATA, null, 2);
+            }
+        }
+
+        function importData() {
+            try {
+                const input = document.getElementById('json-input').value;
+                const parsed = JSON.parse(input);
+                if (Array.isArray(parsed)) {
+                    MOCK_DATA = parsed;
+                    localStorage.setItem('kichul_data', JSON.stringify(MOCK_DATA));
+                    alert(`성공적으로 ${parsed.length}개의 데이터를 불러왔습니다.`);
+                    toggleModal();
+                    resetApp();
+                } else {
+                    alert("데이터 형식이 올바르지 않습니다. (배열 형태여야 함)");
+                }
+            } catch (e) {
+                alert("JSON 파싱 오류: " + e.message);
+            }
+        }
+
+        // --- 이벤트 핸들러 ---
+        function handlePickPassage(sub) {
+            const filtered = MOCK_DATA.filter(item => item.subCategory === sub);
+            if (filtered.length === 0) {
+                alert("해당 카테고리에 등록된 지문이 없습니다.");
+                return;
+            }
+            state.currentPassage = filtered[Math.floor(Math.random() * filtered.length)];
+            state.userAnswers = {};
+            state.showResults = false;
+            render();
+            window.scrollTo(0, 0);
+        }
+
+        function handleSelectOption(qId, idx) {
+            if (state.showResults) return;
+            state.userAnswers[qId] = idx;
+            render();
+        }
+
+        function handleGrade() {
+            state.showResults = true;
+            render();
+        }
+
+        function resetApp() {
+            state.currentPassage = null;
+            state.userAnswers = {};
+            state.showResults = false;
+            render();
+        }
+
+        render();
+    </script>
+</body>
+</html>
